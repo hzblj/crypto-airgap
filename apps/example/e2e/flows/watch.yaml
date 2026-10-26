@@ -1,0 +1,33 @@
+# This phone as the watch-only side: a signer's pairing code (the published test phrase's accounts, as another phone's
+# Signer tab, Pair, shows them for a watch-only wallet) pasted where the camera would read it, then the accounts and
+# their balances, read from the test networks. Building a payment needs coins at those addresses, so it stops there.
+appId: ${APP_ID}
+---
+- runFlow: steps/open.yaml
+- tapOn: Watch-only
+- extendedWaitUntil:
+    visible:
+      id: watch-pair-scanner
+    timeout: 10000
+- takeScreenshot: ${OUT}-01-pair
+- scrollUntilVisible:
+    element:
+      id: paste-ur
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: paste-ur
+- inputText: "UR:CRYPTO-MULTI-ACCOUNTS/OTADCYJKSKTNBKAOLSTAADDLONAXHDCLAXROMNBSRNFHIEIAEMWEMURFBNBSFRLRFHTKKIDALDVWWPLOFLGHVAFZCXDIPDMHQZAAHDCXFNLKCXEMWYGSCMCLTNBTEELGREBYIAJONYIDDPBTDEETUTVATPFPNSGYYNDYCEIDAHTAADEHOYAOADAMTAADDYOEADLNCSGHYKADYKAEYKAOCYJKSKTNBKAYCYBAWKPAPETAADDLOSAXHDCLAOWDVEROKOPDINHSEEROISYALKSAYKCTJSHEDPRNUYJYFGROVAWEWFTYGHCEGLRPKGAAHDCXTPLFJSLUKNFWLAISAXWYPALBJYLSWZAMCXHSCYUYLOZTMWFNLDLGSKPYPTGSDECFAHTAADEHOYADCSFNAMTAADDYOEADLNCSDWYKCSFNYKAEYKAOCYJKSKTNBKATTAADDYOYADLRAEWKLAWKAYCYTEDMFEAYBKJOHSIAIAJLKPJTJYDMJKJYHSJTIEHSJPIETAADDLOTAXHDCXWTENDIIDFGOSHPNTVLEENNTYDNBZVOEYYNGYMYSABSHESNGWCAIEVSCTNDTDHDYLAHTAADEHOYADCFADYKAMTAADDYOEADLOCSDWYKCFADYKYKAEYKAEYKAOCYJKSKTNBKAXJTFPINJPIOHSJOCXFEKSHSJNJOJZIHLGBWCNHL"
+- extendedWaitUntil:
+    visible: 'Airgap Example'
+    timeout: 10000
+- assertVisible: '73c5da0a'
+- assertVisible:
+    id: watch-to
+- takeScreenshot: ${OUT}-02-paired
+- tapOn:
+    id: watch-unpair
+- extendedWaitUntil:
+    visible:
+      id: watch-pair-scanner
+    timeout: 10000

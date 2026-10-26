@@ -1,0 +1,34 @@
+# Air-gapped signing on one phone: the Loopback tab sends each chain's request and answer through animated QR codes
+# and their decoders (a pretend camera that misses every third code), signs with a demo key and checks the answer.
+# Photographs each chain's result. The camera itself is not exercised: the simulator has none.
+appId: ${APP_ID}
+---
+- runFlow: steps/open.yaml
+- tapOn: Loopback
+- extendedWaitUntil:
+    visible:
+      id: loopback-run
+    timeout: 10000
+
+- tapOn:
+    id: loopback-run
+- extendedWaitUntil:
+    visible: 'Signed and verified'
+    timeout: 20000
+- takeScreenshot: ${OUT}-01-ethereum
+
+- tapOn: 'Bitcoin'
+- tapOn:
+    id: loopback-run
+- extendedWaitUntil:
+    visible: 'Signed and verified'
+    timeout: 20000
+- takeScreenshot: ${OUT}-02-bitcoin
+
+- tapOn: 'Solana'
+- tapOn:
+    id: loopback-run
+- extendedWaitUntil:
+    visible: 'Signed and verified'
+    timeout: 20000
+- takeScreenshot: ${OUT}-03-solana
