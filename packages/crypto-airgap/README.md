@@ -131,3 +131,5 @@ response answers its request, and is signed by the right key, is the chain adapt
 output descriptors as text, and anything that carries a secret.
 
 [Documentation](https://github.com/hzblj/crypto-airgap#readme) · [Security](https://github.com/hzblj/crypto-airgap/blob/main/SECURITY.md)
+
+The other libraries from the same author are at **[libraries.janblazej.dev](https://www.libraries.janblazej.dev)**.

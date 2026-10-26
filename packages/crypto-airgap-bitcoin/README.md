@@ -103,3 +103,5 @@ read here.
 **Not in this version:** PSBT version 2, Taproot and P2SH-wrapped inputs, multisig signing, and BIP-322 messages.
 
 [Documentation](https://github.com/hzblj/crypto-airgap#readme) · [Security](https://github.com/hzblj/crypto-airgap/blob/main/SECURITY.md)
+
+The other libraries from the same author are at **[libraries.janblazej.dev](https://www.libraries.janblazej.dev)**.

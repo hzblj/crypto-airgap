@@ -65,3 +65,5 @@ off-chain message signing (its `\xffsolana offchain` header), and pairing types 
 `crypto-multi-accounts`.
 
 [Documentation](https://github.com/hzblj/crypto-airgap#readme) · [Security](https://github.com/hzblj/crypto-airgap/blob/main/SECURITY.md)
+
+The other libraries from the same author are at **[libraries.janblazej.dev](https://www.libraries.janblazej.dev)**.

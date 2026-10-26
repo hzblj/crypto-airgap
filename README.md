@@ -83,4 +83,8 @@ yarn ios             # the example on the iOS simulator (yarn android for Androi
 yarn example e2e ios # Maestro: the flows on the booted simulator, Metro running
 ```
 
+## More libraries
+
+The other libraries from the same author are at **[libraries.janblazej.dev](https://www.libraries.janblazej.dev)**.
+
 [Security](./SECURITY.md) · [MIT](./LICENSE)
