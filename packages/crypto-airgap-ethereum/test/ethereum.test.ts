@@ -289,7 +289,7 @@ describe('air-gapped signing, both sides', async () => {
     )
   })
 
-  test('a signer refuses requests for another key, wallet, address or chain, and what it cannot sign', () => {
+  test('a signer refuses requests for another key, wallet, address or chain, and what does not parse', () => {
     const request: EthereumAirgapRequest = {
       account: pair(),
       requestId: createRequestId(counter(160)),
@@ -562,14 +562,14 @@ describe('hardware wallets: what they share and send', () => {
     assert.equal(legacy.dataType, 'legacy-transaction')
     assert.equal(legacy.origin, 'metamask')
     assert.equal(hex.encode(toUR(ETH_SIGN_REQUEST, legacy).cbor), HARDWARE.keystoneFirmware.legacyRequest)
-    // Legacy transactions are not signed here, as the Ethereum adapter does not sign them.
+    // Its transaction names chain id 0 where EIP-155 puts it, though the request says 1: refused as for another chain.
     throwsCode(
       () =>
         mainnet.decodeSignRequest(toUR(ETH_SIGN_REQUEST, legacy), {
           accountPath: "m/44'/1'/1'",
           fingerprint: 0x12345678,
         }),
-      'INVALID_PROTOCOL_DATA'
+      'REQUEST_MISMATCH'
     )
 
     const fuji = fromUR(
