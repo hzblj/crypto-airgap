@@ -12,6 +12,7 @@ export {
   type ScannedRequest,
   SIGN_REQUEST_TYPES,
   signScannedRequest,
+  taprootAccountPathOf,
 } from './airgap'
 export {
   CHAIN_IDS,

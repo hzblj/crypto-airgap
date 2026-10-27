@@ -48,7 +48,7 @@ const sessionOf = (
   keys: WalletKeys
 ): {extendedPublicKey: (path: string) => ExtendedPublicKey; accountsAt: AccountsAt} => ({
   accountsAt: {
-    bitcoin: path => keys.deriveAccount({chain: 'bitcoin', path}),
+    bitcoin: (path, addressType) => keys.deriveAccount({addressType, chain: 'bitcoin', path}),
     ethereum: path => keys.deriveAccount({chain: 'ethereum', path}),
   },
   extendedPublicKey: path => keys.extendedPublicKey(path),
@@ -147,6 +147,47 @@ test('the signer signs for any address of its accounts, as Sparrow and MetaMask 
   other.dispose()
 })
 
+test('Sparrow`s code carries the Taproot account too, and the signer signs a PSBT from it', async () => {
+  const crypto = createTestCryptoEngine({adapters: createWalletAdapters()})
+  const keys = await crypto.createEphemeralWallet({mnemonic: ABANDON})
+  const accounts = await deriveAccounts(keys)
+  const {accountsAt, extendedPublicKey} = sessionOf(keys)
+  const airgap = airgapsOf(crypto)
+  const code = pairingRequest(crypto, accounts, keys.fingerprint, 'sparrow', extendedPublicKey)
+  const imported = airgap.bitcoin.decodeAccount(scan(code, PAIRING_TYPES))
+
+  assert.deepEqual(
+    imported.descriptors.map(descriptor => descriptor.scripts),
+    [['wpkh'], ['tr']]
+  )
+  const taproot = imported.accounts[1]
+  assert.ok(taproot)
+  assert.equal(taproot.path, "m/86'/1'/0'/0/0")
+
+  const psbt = taproot.createPsbt(
+    taproot.createTransaction({
+      amount: 20_000n,
+      feeRate: 2,
+      to: accounts.bitcoin.address,
+      utxos: [{txid: 'ab'.repeat(32), value: 50_000n, vout: 0}],
+    })
+  )
+  const scanned = readSignRequest(
+    crypto,
+    scan(airgap.bitcoin.encodeSignRequest({psbt}), SIGN_REQUEST_TYPES),
+    accounts,
+    keys.fingerprint
+  )
+  assert.ok(scanned.chain === 'bitcoin')
+  assert.deepEqual(
+    scanned.request.keys.map(key => key.addressType),
+    ['p2tr']
+  )
+  const answer = await signScannedRequest(crypto, scanned, accounts, accountsAt)
+  assert.ok(airgap.bitcoin.decodeSignResponse(answer, {request: psbt}).transaction.txid)
+  keys.dispose()
+})
+
 test('a Keystone 3 Pro`s accounts pair with the watch-only wallet: its Ethereum account, and Solana`s', () => {
   const crypto = createTestCryptoEngine({adapters: createWalletAdapters()})
   // keystone-sdk-rust's crypto-multi-accounts test: an Ethereum account key and a Solana key of one Keystone.
@@ -169,7 +210,11 @@ test('the loopback signs and checks on every chain', async () => {
   const wallet = await crypto.createEphemeralWallet({mnemonic: ABANDON})
   const account = ((chain: string, n: number) =>
     wallet.deriveAccount(
-      (chain === 'solana' ? {account: n, chain} : {chain, index: n}) as Parameters<typeof wallet.deriveAccount>[0]
+      (chain === 'solana'
+        ? {account: n, chain}
+        : chain === 'bitcoin'
+          ? {addressType: 'p2tr', chain, index: n}
+          : {chain, index: n}) as Parameters<typeof wallet.deriveAccount>[0]
     )) as Parameters<typeof runLoopback>[3]
 
   for (const chain of LOOPBACK_CHAINS) {

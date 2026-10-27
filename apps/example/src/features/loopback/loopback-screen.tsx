@@ -70,11 +70,14 @@ export const LoopbackScreen = () => {
     try {
       demo.current ??= await crypto.createEphemeralWallet({mnemonic: DEMO_PHRASE})
       const keys = demo.current
+      // Bitcoin's are Taproot accounts (BIP-86): the loopback signs a Taproot PSBT.
       const account = <Id extends LoopbackChain>(id: Id, n: number) =>
         keys.deriveAccount(
-          (id === 'solana' ? {account: n, chain: id} : {chain: id, index: n}) as Parameters<
-            typeof keys.deriveAccount
-          >[0]
+          (id === 'solana'
+            ? {account: n, chain: id}
+            : id === 'bitcoin'
+              ? {addressType: 'p2tr', chain: id, index: n}
+              : {chain: id, index: n}) as Parameters<typeof keys.deriveAccount>[0]
         ) as Promise<ChainAccount<Id>>
       setRun(await runLoopback(crypto, chain, keys.fingerprint, account))
     } catch (failure) {
@@ -88,9 +91,9 @@ export const LoopbackScreen = () => {
   return (
     <Page testID="airgap-loopback">
       <Lead>
-        Both sides on this phone, with a demo key: a request goes out as QR parts, the signer reads and signs it, the
-        answer comes back and is checked against the request. The demo key is the published test phrase, and nothing is
-        broadcast.
+        Both sides on this phone, with a demo key: an EIP-712 permit, a Taproot PSBT or a v0 Solana transaction goes out
+        as QR parts, the signer reads and signs it, the answer comes back and is checked against the request. The demo
+        key is the published test phrase, and nothing is broadcast.
       </Lead>
       <SegmentedControl
         onChange={next => {

@@ -97,7 +97,7 @@ const consumer = `import {
   type UR,
 } from '@hzblj/crypto-airgap'
 import {bitcoinAirgap} from '@hzblj/crypto-airgap-bitcoin'
-import {ethereumAirgap} from '@hzblj/crypto-airgap-ethereum'
+import {ethereumAirgap, parseTypedData} from '@hzblj/crypto-airgap-ethereum'
 import {solanaAirgap} from '@hzblj/crypto-airgap-solana'
 import {bitcoinAdapter} from '@hzblj/crypto-bitcoin'
 import {ethereumAdapter} from '@hzblj/crypto-ethereum'
@@ -117,12 +117,21 @@ export const airgap = async (scanned: UR) => {
   const fraction: number = receiver.progress.fraction
   const account = {address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', fingerprint: 1, path: "m/44'/60'/0'/0/0"} as const
   const request = eth.decodeSignRequest(scanned, {account})
-  const to: string | undefined = request.kind === 'transaction' ? request.transaction.to : request.text
+  const to: string | null | undefined =
+    request.kind === 'transaction' ? request.transaction.to : request.kind === 'message' ? request.text : request.typedData.primaryType
+  const fee: bigint = request.kind === 'transaction' && request.transaction.type === 'legacy' ? request.transaction.gasPrice : 0n
+  const typedData = parseTypedData('{"types":{},"primaryType":"EIP712Domain","domain":{"name":"x"}}')
+  const typed = eth.decodeSignResponse(scanned, {request: {account, requestId: createRequestId(crypto.random), typedData}})
+  const typedSignature: string | undefined = typed.kind === 'typed-data' ? typed.signature : undefined
+  const solAccount = {address: 'So11111111111111111111111111111111111111112', fingerprint: 1, path: "m/44'/501'/0'/0'"}
+  const offchain = sol.decodeSignResponse(scanned, {request: {account: solAccount, offchainMessage: {signers: [solAccount.address], text: 'x', version: 1}, requestId: createRequestId(crypto.random)}})
+  const partial = sol.decodeSignResponse(scanned, {request: {account: solAccount, requestId: createRequestId(crypto.random), serializedTransaction: new Uint8Array()}})
+  const complete: boolean | undefined = partial.kind === 'partially-signed' ? partial.transaction.complete : offchain.kind === 'offchain-message' ? true : undefined
   const answer = eth.decodeSignResponse(scanned, {request: {account, message: 'x', requestId: createRequestId(crypto.random)}})
   const serialized: string | undefined = answer.kind === 'transaction' ? answer.transaction.serialized : undefined
   const keys = fromUR(CRYPTO_MULTI_ACCOUNTS, scanned).keys.map(key => sol.watchAccount(key).address)
   const review = btc.decodeSignRequest(scanned, {account: crypto.chains.bitcoin.watchAccount({fingerprint: 1, path: "m/84'/1'/0'/0/0", publicKey: new Uint8Array(33)})})
-  const fee: bigint | undefined = review.fee
+  const btcFee: bigint | undefined = review.fee
 
   // Account keys: Sparrow's crypto-account, MetaMask's crypto-hdkey, and requests for any address of the account.
   const wallet = await crypto.createEphemeralWallet()
@@ -133,18 +142,21 @@ export const airgap = async (scanned: UR) => {
   const metamask: UR = toUR(CRYPTO_HDKEY, eth.accountKey({extendedKey: wallet.extendedPublicKey("m/44'/60'/0'"), fingerprint: 1, name: 'Wallet', path: "m/44'/60'/0'"}))
   const anyAddress = eth.decodeSignRequest(scanned, {accountPath: "m/44'/60'/0'", fingerprint: wallet.fingerprint})
   const signed = eth.encodeSignResponse(await eth.signRequest(anyAddress, path => wallet.deriveAccount({chain: 'ethereum', path})))
-  const psbt = btc.decodeSignRequest(scanned, {accountPath: "m/84'/1'/0'", fingerprint: wallet.fingerprint})
-  const answered: UR = btc.encodeSignResponse(await btc.signRequest(psbt, path => wallet.deriveAccount({chain: 'bitcoin', path})))
+  const psbt = btc.decodeSignRequest(scanned, {accountPath: ["m/84'/1'/0'", "m/86'/1'/0'"], fingerprint: wallet.fingerprint})
+  const answered: UR = btc.encodeSignResponse(await btc.signRequest(psbt, (path, addressType) => wallet.deriveAccount({addressType, chain: 'bitcoin', path})))
+  const taproot: UR<'crypto-output'> = btc.encodeOutput(btc.accountKey({extendedKey: wallet.extendedPublicKey("m/86'/1'/0'"), fingerprint: wallet.fingerprint, path: "m/86'/1'/0'"}))
   wallet.dispose()
 
   // @ts-expect-error: an Ethereum request carries no PSBT
   request.psbt
+  // @ts-expect-error: a parsed transaction is a union on its type, and only legacy and EIP-2930 have a gas price
+  if (request.kind === 'transaction') request.transaction.gasPrice
   // @ts-expect-error: decoders take an allowlist
   createMultipartDecoder({sha256})
   // @ts-expect-error: multipart takes SHA-256 from the caller (the engine), having none of its own
   createMultipartEncoder(scanned, {maxFragmentLength: 180})
 
-  return [fraction, to, serialized, keys, fee, sparrow, third, metamask, signed, answered, isAirgapError(null, 'REQUEST_MISMATCH')]
+  return [fraction, to, fee, typedSignature, complete, serialized, keys, btcFee, sparrow, third, metamask, signed, answered, taproot, isAirgapError(null, 'REQUEST_MISMATCH')]
 }
 `
 
