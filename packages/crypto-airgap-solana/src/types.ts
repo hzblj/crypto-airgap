@@ -20,7 +20,10 @@ import {
   writeTagged,
 } from '@hzblj/crypto-airgap'
 
-/** What `sign-data` is: a transaction's message (1), or an arbitrary message (2). */
+/**
+ * What `sign-data` is: a transaction's message (1), or a message (2). Keystone's registry has no other sign type: an
+ * off-chain message travels as a message, recognized by its header.
+ */
 export type SolSignType = 'transaction' | 'message'
 
 const SIGN_TYPES: readonly SolSignType[] = ['transaction', 'message']
@@ -45,8 +48,11 @@ export type SolSignature = {
   readonly signature: Uint8Array
 }
 
-/** The network refuses transactions over 1232 bytes; messages to sign get the same generous bound. */
-const MAX_SIGN_DATA = 64 * 1024
+/**
+ * The network refuses transactions over 1232 bytes; messages get a bound that holds the largest off-chain message
+ * (65535 bytes of text, with its header and signers), and no more.
+ */
+const MAX_SIGN_DATA = 80 * 1024
 
 export const SOL_SIGN_REQUEST = defineURType({
   fromCbor: (item: CborValue): SolSignRequest => {
@@ -59,7 +65,7 @@ export const SOL_SIGN_REQUEST = defineURType({
     }
 
     if (signData.length === 0 || signData.length > MAX_SIGN_DATA) {
-      throw protocolError('The data to sign is from 1 byte to 64 KiB.')
+      throw protocolError('The data to sign is from 1 byte to 80 KiB.')
     }
 
     return compact({
@@ -76,7 +82,7 @@ export const SOL_SIGN_REQUEST = defineURType({
   tag: 1101,
   toCbor: (request: SolSignRequest): CborValue => {
     if (request.signData.length === 0 || request.signData.length > MAX_SIGN_DATA) {
-      throw new AirgapError('INVALID_ARGUMENT', 'The data to sign is from 1 byte to 64 KiB.')
+      throw new AirgapError('INVALID_ARGUMENT', 'The data to sign is from 1 byte to 80 KiB.')
     }
 
     if (request.address && request.address.length !== 32) {
