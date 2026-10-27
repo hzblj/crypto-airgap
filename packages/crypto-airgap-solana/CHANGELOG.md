@@ -1,5 +1,13 @@
 # @hzblj/crypto-airgap-solana
 
+## 0.2.0
+
+### Minor Changes
+
+- [#1](https://github.com/hzblj/crypto-airgap/pull/1) [`9e17ac7`](https://github.com/hzblj/crypto-airgap/commit/9e17ac776324548f343077e090e0652f744bde87) Thanks [@hzblj](https://github.com/hzblj)! - Versioned transactions, transactions others sign too, and off-chain messages, now that `@hzblj/crypto-solana` 0.3.0 reads them. A watch-only wallet builds a v0 transaction with `version: 0` and `addressLookupTables`, asks for a dApp's wire transaction with `{serializedTransaction}` (the answer fills the account's slot and keeps every other: `kind: 'partially-signed'`, with `complete` once every signer has signed), and asks for an off-chain message (version 0 or 1) with `{offchainMessage}`, answered with the encoded message and a signature `verifyOffchainMessage` accepts. A signer reads v0 messages without their lookup tables, which a sign request cannot carry: looked-up accounts say their table and index, their `address` `undefined`, with the new warning `UNRESOLVED_LOOKUPS`. Keystone's registry has no sign type for off-chain messages, and Keystone 3's firmware tells one from other messages by its header, so they travel as messages (sign type 2) and the signer reads the header: the specification's versions are decoded as `kind: 'offchain-message'` (refused unless the account is among the signers), and the `solana` CLI's older format is shown as its text, as Keystone shows it. Anything that starts as a versioned transaction this does not read (v1 and later) is refused, as a transaction and as a message. `signRequest(request, account)` signs each kind as it asks. The sign data bound is now 80 KiB, enough for the largest off-chain message. Tested against `@keystonehq/bc-ur-registry-sol` and Keystone 3's firmware payloads (two v0 transactions with lookup tables, a sign-in in the older off-chain format).
+
+  Type changes to check when upgrading: `SolanaSignRequest`, `SolanaAirgapRequest` and `SolanaAirgapResponse` gain members (`offchain-message`, `serializedTransaction`, `partially-signed`), so a `switch` on `kind` needs cases for them; `SolanaSignWarning` gains `UNRESOLVED_LOOKUPS`; a decoded message's accounts may have no `address` (from `@hzblj/crypto-solana` 0.3.0). Requires `@hzblj/crypto-solana` 0.3.0 and `@hzblj/nitro-crypto` 0.1.5.
+
 ## 0.1.0
 
 ### Minor Changes
