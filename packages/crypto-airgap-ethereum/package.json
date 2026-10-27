@@ -1,6 +1,6 @@
 {
   "name": "@hzblj/crypto-airgap-ethereum",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ethereum air-gapped signing for @hzblj/crypto-airgap: ERC-4527 eth-sign-request and eth-signature for legacy, EIP-2930, EIP-1559 and EIP-7702 transactions, EIP-712 typed data and personal messages, every answer checked by recovering its signer with @hzblj/crypto-ethereum. No UI, no camera.",
   "author": "Jan Blazej",
   "license": "MIT",

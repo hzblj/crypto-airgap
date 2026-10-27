@@ -1,5 +1,13 @@
 # @hzblj/crypto-airgap-bitcoin
 
+## 0.2.0
+
+### Minor Changes
+
+- [#1](https://github.com/hzblj/crypto-airgap/pull/1) [`385c111`](https://github.com/hzblj/crypto-airgap/commit/385c1118732fdd5406e338518bacd5c5771d7930) Thanks [@hzblj](https://github.com/hzblj)! - Taproot, now that `@hzblj/crypto-bitcoin` 0.3.0 has BIP-86 accounts and BIP-371's PSBT fields. A key at a BIP-86 path is watched as a Taproot account (`watchAccount`), `encodeAccount` writes a `tr` descriptor for it and `wpkh` for BIP-84 (by the key's purpose, as Keystone 3's firmware writes them for Sparrow, whose import reads `tr` as P2TR), the new `encodeOutput` writes one account as a `crypto-output`, and `decodeAccount` reads a `crypto-output` too and watches `tr` descriptors. A signer recognizes a Taproot coin by its Taproot derivation (`PSBT_IN_TAP_BIP32_DERIVATION`, key path) and BIP-86's address of that key, and Taproot change the same way; `{fingerprint, accountPath}` takes several account paths (a BIP-84 and a BIP-86 account of one wallet), so a PSBT spending from both is read and signed key by key, and `decodeSignResponse` finalizes P2WPKH and Taproot inputs together, every signature verified by the engine. Tested against Keystone 3's firmware `crypto-account` (its accounts watched at BIP-84's and BIP-86's published addresses) and `@scure/btc-signer`, which builds the mixed PSBT as Sparrow would and finalizes what is signed here to the same transaction. Bitcoin message signing over QR codes is left out: the only UR type for it is Keystone's own `btc-sign-request` (legacy signatures only), and the README says why.
+
+  Type changes to check when upgrading: `signRequest`'s callback is now called as `account(path, addressType)` and must derive the key as that type (`(path, addressType) => wallet.deriveAccount({addressType, chain: 'bitcoin', path})`; one that ignores it is refused for a Taproot input, `INVALID_ARGUMENT`); `BitcoinSigningKey` has `addressType`, and a Taproot key's `publicKey` is the 32-byte x-only key the PSBT names; `encodeAccount` refuses a key at a purpose other than 84' or 86' (it wrapped every key in `wpkh`). Requires `@hzblj/crypto-bitcoin` 0.3.0 and `@hzblj/nitro-crypto` 0.1.5.
+
 ## 0.1.0
 
 ### Minor Changes
