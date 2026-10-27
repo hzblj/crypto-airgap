@@ -1,7 +1,7 @@
 {
   "name": "@hzblj/crypto-airgap-bitcoin",
   "version": "0.1.0",
-  "description": "Bitcoin air-gapped signing for @hzblj/crypto-airgap: PSBTs as crypto-psbt both ways, checked against the request and finalized by @hzblj/crypto-bitcoin, and accounts as crypto-account output descriptors. No UI, no camera.",
+  "description": "Bitcoin air-gapped signing for @hzblj/crypto-airgap: PSBTs as crypto-psbt both ways, P2WPKH and Taproot, checked against the request and finalized by @hzblj/crypto-bitcoin, and accounts as crypto-account and crypto-output descriptors (wpkh, tr). No UI, no camera.",
   "author": "Jan Blazej",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,7 @@
     "air-gap",
     "bc-ur",
     "bip174",
+    "bip86",
     "bitcoin",
     "crypto-account",
     "crypto-psbt",
@@ -24,6 +25,7 @@
     "psbt",
     "qr",
     "react-native",
+    "taproot",
     "wallet"
   ],
   "main": "./build/index.js",

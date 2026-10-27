@@ -11,16 +11,19 @@ import {
 } from '@hzblj/crypto-airgap'
 import type {
   BitcoinAccount,
+  BitcoinAccountType,
   BitcoinChain,
+  BitcoinKeyOrigin,
   BitcoinPsbt,
   BitcoinPsbtInput,
   BitcoinPsbtOutput,
+  BitcoinTaprootKeyOrigin,
   BitcoinWatchAccount,
   SignedBitcoinTransaction,
 } from '@hzblj/crypto-bitcoin'
 import {bytes, type ExtendedPublicKey, isCryptoError} from '@hzblj/nitro-crypto/adapter'
 
-import {type BitcoinAirgapAccount, CRYPTO_ACCOUNT, CRYPTO_PSBT, type OutputDescriptor} from './types'
+import {type BitcoinAirgapAccount, CRYPTO_ACCOUNT, CRYPTO_OUTPUT, CRYPTO_PSBT, type OutputDescriptor} from './types'
 
 /** What a watch-only wallet sends: an unsigned PSBT, as `account.createPsbt` writes it. */
 export type BitcoinSignRequestInput = {readonly psbt: Uint8Array}
@@ -41,8 +44,15 @@ export type BitcoinSignResponse = {
  */
 export type BitcoinSignWarning = 'FOREIGN_INPUTS' | 'UNVERIFIED_VALUES' | 'UNKNOWN_FEE' | 'NO_ADDRESS_OUTPUT'
 
-/** A key the signer signs with: its path below the master key, and the public key the PSBT says it has there. */
-export type BitcoinSigningKey = {readonly path: string; readonly publicKey: Uint8Array}
+/**
+ * A key the signer signs with: its path below the master key, the public key the PSBT says it has there (33 bytes for
+ * P2WPKH, the 32-byte x-only key BIP-371 names for Taproot), and the account type that spends with it.
+ */
+export type BitcoinSigningKey = {
+  readonly path: string
+  readonly publicKey: Uint8Array
+  readonly addressType: BitcoinAccountType
+}
 
 /** A request as the signer reads it: everything to show before asking whether to sign. */
 export type BitcoinSignRequest = {
@@ -64,13 +74,14 @@ export type BitcoinSignRequest = {
 }
 
 /**
- * Who signs: one account (its one address), or a wallet's account as a coordinator such as Sparrow uses it, every
- * receiving and change address below `accountPath` ("m/84'/0'/0'") that the PSBT names under the wallet's
- * fingerprint, each checked against the coin it spends.
+ * Who signs: one account (its one address), or a wallet's accounts as a coordinator such as Sparrow uses them, every
+ * receiving and change address below `accountPath` that the PSBT names under the wallet's fingerprint, each checked
+ * against the coin it spends: a P2WPKH account ("m/84'/0'/0'", by its BIP-32 derivations), a Taproot one
+ * ("m/86'/0'/0'", by its BIP-371 Taproot derivations), or several, for a PSBT that spends from both.
  */
 export type BitcoinSignContext =
   | {readonly account: BitcoinWatchAccount}
-  | {readonly fingerprint: number; readonly accountPath: string}
+  | {readonly fingerprint: number; readonly accountPath: string | readonly string[]}
 
 /** What a signer answers with: the PSBT its accounts signed (`signRequest`, or `account.signPsbt`). */
 export type BitcoinSignature = {readonly psbt: Uint8Array}
@@ -83,13 +94,14 @@ export type BitcoinAccountKey = {
   readonly fingerprint: number
 }
 
-/** One wallet's accounts as a `crypto-account` carries them, and those this network can watch. */
+/** One wallet's accounts as a `crypto-account` (or one `crypto-output`) carries them, and those this network can watch. */
 export type BitcoinAccountImport = {
   readonly masterFingerprint: number
   readonly descriptors: readonly OutputDescriptor[]
   /**
-   * The P2WPKH descriptors this network can watch: single keys at full BIP-84 paths, and account keys (`m/84'/c'/a'`
-   * with a chain code), watched at their first receiving address.
+   * The descriptors this network can watch: `wpkh` at BIP-84 paths and `tr` at BIP-86 paths, each a single key at a
+   * full path or an account key (`m/84'/c'/a'`, `m/86'/c'/a'`, with a chain code) watched at its first receiving
+   * address.
    */
   readonly accounts: readonly BitcoinWatchAccount[]
 }
@@ -101,9 +113,10 @@ export type BitcoinAirgap = AirgapRequester<
 > &
   AirgapResponder<BitcoinSignRequest, BitcoinSignContext, BitcoinSignature> & {
     /**
-     * A key shared by a signer (from `crypto-account`, `crypto-multi-accounts` or `crypto-hdkey`) as a watch-only
-     * account: a single key at a full BIP-84 path, or an account's extended key (`m/84'/c'/a'`), at its receiving
-     * address `index` (0 unless stated), derived publicly by the engine.
+     * A key shared by a signer (from `crypto-account`, `crypto-output`, `crypto-multi-accounts` or `crypto-hdkey`) as a
+     * watch-only account: a single key at a full path, or an account's extended key (`m/84'/c'/a'`), at its receiving
+     * address `index` (0 unless stated), derived publicly by the engine. Its path says its type: BIP-84 is P2WPKH,
+     * BIP-86 Taproot (the engine needs `taproot-tweak` for it).
      */
     readonly watchAccount: (key: HDKey, masterFingerprint?: number, index?: number) => BitcoinWatchAccount
     /** An account's single public key as a signer shares it, with its path and wallet. */
@@ -111,21 +124,26 @@ export type BitcoinAirgap = AirgapRequester<
     /** An account's extended public key as a signer shares it (`wallet.extendedPublicKey("m/84'/1'/0'")`). */
     readonly accountKey: (key: BitcoinAccountKey) => HDKey
     /**
-     * Keys as a `crypto-account` UR, one P2WPKH descriptor each: what Sparrow and other coordinators import, given
-     * account keys (`accountKey`).
+     * Keys as a `crypto-account` UR, one descriptor each, its script by the key's purpose as Keystone and Sparrow write
+     * them: `wpkh` for BIP-84, `tr` for BIP-86. What Sparrow and other coordinators import, given account keys
+     * (`accountKey`). A key at another purpose is `INVALID_ARGUMENT`.
      */
     readonly encodeAccount: (request: {
       readonly masterFingerprint: number
       readonly keys: readonly HDKey[]
     }) => UR<'crypto-account'>
+    /** One key as a `crypto-output` UR, `wpkh` or `tr` by its purpose: one account, as Sparrow imports it too. */
+    readonly encodeOutput: (key: HDKey) => UR<'crypto-output'>
+    /** A `crypto-account`, or one `crypto-output` (its wallet named by its key's origin), and what it can watch. */
     readonly decodeAccount: (ur: UR) => BitcoinAccountImport
     /**
-     * Signs a request the user agreed to: each key it needs, derived by `account(path)` (the wallet's
-     * `deriveAccount({chain, path})`) and checked against the public key the PSBT names, signs its inputs in turn.
+     * Signs a request the user agreed to: each key it needs, derived by `account(path, addressType)` (the wallet's
+     * `deriveAccount({addressType, chain, path})`) and checked against the public key the PSBT names and its type,
+     * signs its inputs in turn: P2WPKH and Taproot accounts alike.
      */
     readonly signRequest: (
       request: BitcoinSignRequest,
-      account: (path: string) => Promise<BitcoinAccount>
+      account: (path: string, addressType: BitcoinAccountType) => Promise<BitcoinAccount>
     ) => Promise<BitcoinSignature>
   }
 
@@ -145,7 +163,16 @@ const fromChain = <T>(run: () => T, message: string): T => {
 }
 
 const HARDENED = 0x80000000
-const BIP84 = 84 + HARDENED
+
+/** The account type each BIP-43 purpose this package watches stands for, and the descriptor script that pays it. */
+const PURPOSES: ReadonlyMap<number, {readonly addressType: BitcoinAccountType; readonly script: 'wpkh' | 'tr'}> =
+  new Map([
+    [84 + HARDENED, {addressType: 'p2wpkh', script: 'wpkh'}],
+    [86 + HARDENED, {addressType: 'p2tr', script: 'tr'}],
+  ])
+
+/** A key as its x-only half: what BIP-371 names a Taproot key by. */
+const xOnly = (publicKey: Uint8Array) => (publicKey.length === 33 ? publicKey.subarray(1) : publicKey)
 
 const indexesOf = (key: HDKey) =>
   (key.origin?.components ?? []).map(step =>
@@ -160,9 +187,10 @@ const isBelowAccount = (path: string, accountPath: string) => {
 }
 
 /**
- * Air-gapped signing for Bitcoin, bound to a chain (`crypto.chains.bitcoin`): PSBTs (BIP-174) travel as
- * `crypto-psbt` both ways, accounts as `crypto-account`. Nothing here signs or verifies by itself: the chain decodes,
- * signs and finalizes, the engine verifies.
+ * Air-gapped signing for Bitcoin, bound to a chain (`crypto.chains.bitcoin`): PSBTs (BIP-174, with BIP-371's Taproot
+ * fields) travel as `crypto-psbt` both ways, accounts as `crypto-account` or `crypto-output`, P2WPKH (`wpkh`) and
+ * Taproot (`tr`) alike. Nothing here signs or verifies by itself: the chain decodes, signs and finalizes, the engine
+ * verifies.
  *
  * A watch-only wallet: `encodeSignRequest` its PSBT, show it, scan the answer, `decodeSignResponse` it against the
  * PSBT it sent, broadcast the transaction. A signer: `decodeSignRequest` what it scans, show it, `signRequest` once
@@ -179,6 +207,7 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
   const watchAccount = (key: HDKey, masterFingerprint?: number, index = 0) => {
     const fingerprint = key.origin?.sourceFingerprint ?? masterFingerprint
     const indexes = indexesOf(key)
+    const purpose = PURPOSES.get(indexes[0] ?? 0)
 
     if (key.keyData.length !== 33) {
       throw new AirgapError('INVALID_PROTOCOL_DATA', 'A Bitcoin key is a compressed secp256k1 public key.')
@@ -191,10 +220,10 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
     const isAccount = indexes.length === 3 && key.chainCode !== undefined
     const isAddress = indexes.length === 5
 
-    if (!(isAccount || isAddress) || indexes[0] !== BIP84 || indexes.some(Number.isNaN)) {
+    if (!(isAccount || isAddress) || !purpose || indexes.some(Number.isNaN)) {
       throw new AirgapError(
         'INVALID_PROTOCOL_DATA',
-        "A key to watch is an account's extended key (m/84'/coin'/account') or one address's (…/change/index)."
+        "A key to watch is a BIP-84 or BIP-86 account's extended key (m/84'/coin'/account') or one address's (…/change/index)."
       )
     }
 
@@ -206,10 +235,11 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
     }
 
     const path = formatKeypath(key.origin)
+    const {addressType} = purpose
 
     if (isAddress) {
       return fromChain(
-        () => chain.watchAccount({fingerprint, path, publicKey: key.keyData}),
+        () => chain.watchAccount({addressType, fingerprint, path, publicKey: key.keyData}),
         'The key is not one to watch.'
       )
     }
@@ -222,13 +252,48 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
       publicKey: key.keyData,
     }
 
-    return fromChain(() => chain.watchAccount({extendedKey, fingerprint, index, path}), 'The key is not one to watch.')
+    return fromChain(
+      () => chain.watchAccount({addressType, extendedKey, fingerprint, index, path}),
+      'The key is not one to watch.'
+    )
   }
 
-  /** The P2WPKH address of a key named in a PSBT, to compare with the coin or output it is named for. */
-  const addressOf = (publicKey: Uint8Array) => {
+  /** The descriptor script a key's purpose stands for: `wpkh` for BIP-84, `tr` for BIP-86. */
+  const scriptOf = (key: HDKey) => {
+    const purpose = PURPOSES.get(indexesOf(key)[0] ?? 0)
+
+    if (!purpose) {
+      throw new AirgapError('INVALID_ARGUMENT', 'A key to share is at a BIP-84 (wpkh) or BIP-86 (tr) path.')
+    }
+
+    return purpose.script
+  }
+
+  /** The accounts this network can watch among descriptors: `wpkh` and `tr` around one HD key at its purpose's path. */
+  const watchable = (descriptors: readonly OutputDescriptor[], masterFingerprint: number) =>
+    descriptors.flatMap(descriptor => {
+      const [key] = descriptor.keys
+      const [script] = descriptor.scripts
+
+      if (descriptor.scripts.length !== 1 || !key || !('hdkey' in key)) {
+        return []
+      }
+
+      try {
+        return scriptOf(key.hdkey) === script ? [watchAccount(key.hdkey, masterFingerprint)] : []
+      } catch (error) {
+        if (error instanceof AirgapError) {
+          return []
+        }
+
+        throw error
+      }
+    })
+
+  /** The address of a key named in a PSBT as an account of `addressType`, to compare with the coin it is named for. */
+  const addressOf = (publicKey: Uint8Array, addressType: BitcoinAccountType) => {
     try {
-      return chain.addressFromPublicKey(publicKey)
+      return chain.addressFromPublicKey(publicKey, addressType)
     } catch {
       return undefined
     }
@@ -244,53 +309,65 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
     }),
     chain: 'bitcoin',
     decodeAccount: (ur: UR): BitcoinAccountImport => {
-      const account: BitcoinAirgapAccount = fromUR(CRYPTO_ACCOUNT, ur)
-      const accounts = account.descriptors.flatMap(descriptor => {
+      let account: BitcoinAirgapAccount
+
+      if (ur.type === 'crypto-output') {
+        const descriptor = fromUR(CRYPTO_OUTPUT, ur)
         const [key] = descriptor.keys
+        const masterFingerprint = key && 'hdkey' in key ? key.hdkey.origin?.sourceFingerprint : undefined
 
-        if (descriptor.scripts.length !== 1 || descriptor.scripts[0] !== 'wpkh' || !key || !('hdkey' in key)) {
-          return []
+        if (masterFingerprint === undefined) {
+          throw new AirgapError('INVALID_PROTOCOL_DATA', 'An output descriptor`s key says which wallet it is of.')
         }
 
-        try {
-          return [watchAccount(key.hdkey, account.masterFingerprint)]
-        } catch (error) {
-          if (error instanceof AirgapError) {
-            return []
-          }
+        account = {descriptors: Object.freeze([descriptor]), masterFingerprint}
+      } else {
+        account = fromUR(CRYPTO_ACCOUNT, ur)
+      }
 
-          throw error
-        }
+      return Object.freeze({
+        ...account,
+        accounts: Object.freeze(watchable(account.descriptors, account.masterFingerprint)),
       })
-
-      return Object.freeze({...account, accounts: Object.freeze(accounts)})
     },
     decodeSignRequest: (ur: UR, context: BitcoinSignContext): BitcoinSignRequest => {
       const psbt = fromUR(CRYPTO_PSBT, ur)
       const decoded = decodePsbt(psbt, 'The request')
       const keys = new Map<string, BitcoinSigningKey>()
 
-      /** The signer's key behind a script, by the context: its one account's, or one the PSBT names below its account. */
+      const accountPaths = 'account' in context ? [] : [context.accountPath].flat()
+      const inAccount = ({fingerprint, path}: {readonly fingerprint: number; readonly path: string}) =>
+        !('account' in context) &&
+        fingerprint === context.fingerprint &&
+        accountPaths.some(accountPath => isBelowAccount(path, accountPath))
+
+      /** The signer's key behind a script, by the context: its one account's, or one the PSBT names below its accounts. */
       const ownKey = (
         scriptPubKey: Uint8Array | undefined,
         address: string | undefined,
-        derivations: BitcoinPsbtInput['derivations']
+        derivations: readonly BitcoinKeyOrigin[],
+        taprootDerivations: readonly BitcoinTaprootKeyOrigin[]
       ): BitcoinSigningKey | undefined => {
         if ('account' in context) {
           const {account} = context
 
           return scriptPubKey && bytes.equal(scriptPubKey, account.scriptPubKey)
-            ? {path: account.path, publicKey: account.publicKey}
+            ? {addressType: account.addressType, path: account.path, publicKey: account.publicKey}
             : undefined
         }
 
-        const origin = derivations.find(
-          ({fingerprint, path}) => fingerprint === context.fingerprint && isBelowAccount(path, context.accountPath)
-        )
-
         // The PSBT's word for whose key it is counts only when the key really pays this script.
-        return origin && address !== undefined && addressOf(origin.publicKey) === address
-          ? {path: origin.path, publicKey: origin.publicKey}
+        const origin = derivations.find(inAccount)
+
+        if (origin && address !== undefined && addressOf(origin.publicKey, 'p2wpkh') === address) {
+          return {addressType: 'p2wpkh', path: origin.path, publicKey: origin.publicKey}
+        }
+
+        // A Taproot key path: BIP-86's output of the key, with no script tree (no leaves to sign in).
+        const taproot = taprootDerivations.find(entry => inAccount(entry) && entry.leafHashes.length === 0)
+
+        return taproot && address !== undefined && addressOf(taproot.publicKey, 'p2tr') === address
+          ? {addressType: 'p2tr', path: taproot.path, publicKey: taproot.publicKey}
           : undefined
       }
 
@@ -299,22 +376,22 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
 
         // The PSBT may say where the account's key came from: it must agree with the account.
         for (const input of decoded.inputs) {
-          for (const origin of input.derivations) {
-            if (
-              bytes.equal(origin.publicKey, account.publicKey) &&
-              (origin.fingerprint !== account.fingerprint || origin.path !== account.path)
-            ) {
-              throw new AirgapError('REQUEST_MISMATCH', 'The PSBT places this account`s key in another wallet or path.')
-            }
+          const origins = [
+            ...input.derivations.filter(origin => bytes.equal(origin.publicKey, account.publicKey)),
+            ...input.taprootDerivations.filter(origin => bytes.equal(origin.publicKey, xOnly(account.publicKey))),
+          ]
+
+          if (origins.some(origin => origin.fingerprint !== account.fingerprint || origin.path !== account.path)) {
+            throw new AirgapError('REQUEST_MISMATCH', 'The PSBT places this account`s key in another wallet or path.')
           }
         }
       }
 
       const inputs = decoded.inputs.map(input => {
-        const key = ownKey(input.spent?.scriptPubKey, input.address, input.derivations)
+        const key = ownKey(input.spent?.scriptPubKey, input.address, input.derivations, input.taprootDerivations)
 
         if (key) {
-          keys.set(key.path, key)
+          keys.set(`${key.addressType} ${key.path}`, key)
         }
 
         return Object.freeze({...input, mine: key !== undefined})
@@ -328,7 +405,8 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
       const outputs = decoded.outputs.map(output =>
         Object.freeze({
           ...output,
-          change: ownKey(output.scriptPubKey, output.address, output.derivations) !== undefined,
+          change:
+            ownKey(output.scriptPubKey, output.address, output.derivations, output.taprootDerivations) !== undefined,
         })
       )
       const warnings: BitcoinSignWarning[] = []
@@ -393,9 +471,10 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
     },
     encodeAccount: ({keys, masterFingerprint}) =>
       toUR(CRYPTO_ACCOUNT, {
-        descriptors: keys.map(hdkey => ({keys: [{hdkey}], scripts: ['wpkh'] as const})),
+        descriptors: keys.map(hdkey => ({keys: [{hdkey}], scripts: [scriptOf(hdkey)]})),
         masterFingerprint,
       }),
+    encodeOutput: (hdkey: HDKey) => toUR(CRYPTO_OUTPUT, {keys: [{hdkey}], scripts: [scriptOf(hdkey)]}),
     encodeSignRequest: ({psbt}: BitcoinSignRequestInput) => {
       // What goes out must be a PSBT this chain reads: a malformed one is the caller's mistake, said here.
       decodePsbt(psbt, 'The PSBT')
@@ -410,14 +489,28 @@ export const bitcoinAirgap = (chain: BitcoinChain<string>): BitcoinAirgap => {
     }),
     requestTypes: Object.freeze(['crypto-psbt']),
     responseTypes: Object.freeze(['crypto-psbt']),
-    signRequest: async (request: BitcoinSignRequest, account: (path: string) => Promise<BitcoinAccount>) => {
+    signRequest: async (
+      request: BitcoinSignRequest,
+      account: (path: string, addressType: BitcoinAccountType) => Promise<BitcoinAccount>
+    ) => {
       let psbt = request.psbt
 
       for (const key of request.keys) {
-        const signer = await account(key.path)
+        const signer = await account(key.path, key.addressType)
+        const same =
+          key.addressType === 'p2tr'
+            ? bytes.equal(xOnly(signer.publicKey), xOnly(key.publicKey))
+            : bytes.equal(signer.publicKey, key.publicKey)
 
-        if (!bytes.equal(signer.publicKey, key.publicKey)) {
+        if (!same) {
           throw new AirgapError('REQUEST_MISMATCH', 'The PSBT names a key this wallet does not have at that path.')
+        }
+
+        if (signer.addressType !== key.addressType) {
+          throw new AirgapError(
+            'INVALID_ARGUMENT',
+            `The key at ${key.path} signs as a ${key.addressType} account: derive it with that addressType.`
+          )
         }
 
         psbt = (await signer.signPsbt(psbt)).psbt
