@@ -2,7 +2,7 @@ import {AirgapError, CRYPTO_HDKEY, CRYPTO_MULTI_ACCOUNTS, fromUR, type HDKey, to
 import {type BitcoinSignRequest, bitcoinAirgap} from '@hzblj/crypto-airgap-bitcoin'
 import {type EthereumAirgapAccount, type EthereumSignRequest, ethereumAirgap} from '@hzblj/crypto-airgap-ethereum'
 import {type SolanaAirgapAccount, type SolanaSignRequest, solanaAirgap} from '@hzblj/crypto-airgap-solana'
-import type {BitcoinWatchRequest} from '@hzblj/crypto-bitcoin'
+import type {BitcoinAccountType, BitcoinWatchRequest} from '@hzblj/crypto-bitcoin'
 import type {ExtendedPublicKey} from '@hzblj/nitro-crypto'
 
 import type {ChainAccount, WalletAccounts, WalletCrypto} from './chains'
@@ -67,9 +67,15 @@ export const fingerprintOf = (hex: string) => Number.parseInt(hex, 16)
 /** The account an address belongs to: its path without `change/index` (`m/84'/1'/0'/0/0` is in `m/84'/1'/0'`). */
 export const accountPathOf = (path: string) => path.split('/').slice(0, -2).join('/')
 
+/**
+ * The wallet's Taproot account beside its native SegWit one: the same coin type and account under BIP-86's purpose
+ * (`m/84'/1'/0'` has `m/86'/1'/0'`). Sparrow pairs with both, and the signer signs for both.
+ */
+export const taprootAccountPathOf = (path: string) => accountPathOf(path).replace(/^m\/84'/, "m/86'")
+
 /** The wallet's keys a signature may need, derived on demand at the path a request names, once checked. */
 export type AccountsAt = {
-  readonly bitcoin: (path: string) => Promise<ChainAccount<'bitcoin'>>
+  readonly bitcoin: (path: string, addressType: BitcoinAccountType) => Promise<ChainAccount<'bitcoin'>>
   readonly ethereum: (path: string) => Promise<ChainAccount<'ethereum'>>
 }
 
@@ -87,15 +93,19 @@ export const pairingRequest = (
   extendedPublicKey: (path: string) => ExtendedPublicKey
 ): UR => {
   const {bitcoin, ethereum, solana} = airgapsOf(crypto)
-  const accountKey = (chain: 'bitcoin' | 'ethereum') => {
-    const path = accountPathOf(accounts[chain].path)
-
-    return {extendedKey: extendedPublicKey(path), fingerprint, path}
-  }
+  const keyAt = (path: string) => ({extendedKey: extendedPublicKey(path), fingerprint, path})
+  const accountKey = (chain: 'bitcoin' | 'ethereum') => keyAt(accountPathOf(accounts[chain].path))
 
   switch (format) {
     case 'sparrow':
-      return bitcoin.encodeAccount({keys: [bitcoin.accountKey(accountKey('bitcoin'))], masterFingerprint: fingerprint})
+      // Native SegWit (wpkh) and Taproot (tr), as Keystone shares them: Sparrow offers each as a wallet to import.
+      return bitcoin.encodeAccount({
+        keys: [
+          bitcoin.accountKey(accountKey('bitcoin')),
+          bitcoin.accountKey(keyAt(taprootAccountPathOf(accounts.bitcoin.path))),
+        ],
+        masterFingerprint: fingerprint,
+      })
     case 'metamask':
       return toUR(CRYPTO_HDKEY, ethereum.accountKey({...accountKey('ethereum'), name: DEVICE}))
     case 'watch-only': {
@@ -123,10 +133,12 @@ export const readSignRequest = (
 ): ScannedRequest => {
   const {bitcoin, ethereum, solana} = airgapsOf(crypto)
   const inAccount = (chain: 'bitcoin' | 'ethereum') => ({accountPath: accountPathOf(accounts[chain].path), fingerprint})
+  const bitcoinPaths = [accountPathOf(accounts.bitcoin.path), taprootAccountPathOf(accounts.bitcoin.path)]
 
   switch (ur.type) {
     case 'crypto-psbt':
-      return {chain: 'bitcoin', request: bitcoin.decodeSignRequest(ur, inAccount('bitcoin'))}
+      // Its native SegWit and Taproot accounts both: a coordinator may spend from either, or from both at once.
+      return {chain: 'bitcoin', request: bitcoin.decodeSignRequest(ur, {accountPath: bitcoinPaths, fingerprint})}
     case 'eth-sign-request':
       return {chain: 'ethereum', request: ethereum.decodeSignRequest(ur, inAccount('ethereum'))}
     default: {
@@ -154,15 +166,8 @@ export const signScannedRequest = async (
       return bitcoin.encodeSignResponse(await bitcoin.signRequest(scanned.request, accountsAt.bitcoin))
     case 'ethereum':
       return ethereum.encodeSignResponse(await ethereum.signRequest(scanned.request, accountsAt.ethereum))
-    case 'solana': {
-      const {request} = scanned
-      const signature =
-        request.kind === 'transaction'
-          ? await accounts.solana.signTransactionMessage(request.message)
-          : await accounts.solana.signMessage({message: request.message})
-
-      return solana.encodeSignResponse({requestId: request.requestId, signature})
-    }
+    case 'solana':
+      return solana.encodeSignResponse(await solana.signRequest(scanned.request, accounts.solana))
   }
 }
 

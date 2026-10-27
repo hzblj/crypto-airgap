@@ -44,13 +44,21 @@ export type EthSignRequest = {
   readonly origin?: string
 }
 
-/** ERC-4527 `eth-signature` (tag 402): 65 bytes, `r || s || v`, and the id of the request it answers. */
+/**
+ * ERC-4527 `eth-signature` (tag 402): `r || s || v`, and the id of the request it answers. `v` is one byte (27 or 28
+ * for a message or typed data, the y parity for a typed transaction) or, for a legacy transaction, EIP-155's
+ * `chainId × 2 + 35 + parity` in as many big-endian bytes as it takes (up to 8), as Keystone's firmware writes it and
+ * MetaMask's keyring reads it: 65 to 72 bytes in all.
+ */
 export type EthSignature = {
   readonly requestId?: RequestId
   readonly signature: Uint8Array
   /** The signer, for people: its device's name. */
   readonly origin?: string
 }
+
+/** `r || s`, then `v` in 1 to 8 bytes. */
+const isSignatureLength = (length: number) => length >= 65 && length <= 72
 
 /** Far more than any transaction or message a signer shows, small enough to refuse a hostile one cheaply. */
 const MAX_SIGN_DATA = 128 * 1024
@@ -111,17 +119,22 @@ export const ETH_SIGN_REQUEST = defineURType({
 export const ETH_SIGNATURE = defineURType({
   fromCbor: (item: CborValue): EthSignature => {
     const map = readMap(item, 'An Ethereum signature')
+    const signature = readBytes(required(map, 2, 'A signature'), 'A signature')
+
+    if (!isSignatureLength(signature.length)) {
+      throw protocolError('A signature is r || s || v: 65 to 72 bytes.')
+    }
 
     return compact({
       origin: optional(map, 3, value => readText(value, 'An origin')),
       requestId: optional(map, 1, value => readRequestId(value)),
-      signature: readBytes(required(map, 2, 'A signature'), 'A signature', 65),
+      signature,
     })
   },
   tag: 402,
   toCbor: (signature: EthSignature): CborValue => {
-    if (signature.signature.length !== 65) {
-      throw new AirgapError('INVALID_ARGUMENT', 'An Ethereum signature is 65 bytes, r || s || v.')
+    if (!isSignatureLength(signature.signature.length)) {
+      throw new AirgapError('INVALID_ARGUMENT', 'An Ethereum signature is r || s || v: 65 to 72 bytes.')
     }
 
     return writeMap([

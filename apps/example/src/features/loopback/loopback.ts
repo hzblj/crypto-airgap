@@ -69,60 +69,87 @@ type Accounts<Id extends LoopbackChain> = {readonly signer: ChainAccount<Id>; re
 
 const shortHex = (text: string) => (text.length > 20 ? `${text.slice(0, 10)}…${text.slice(-8)}` : text)
 
+/** Sepolia's USDC, whose EIP-2612 permit the Ethereum loopback signs. */
+const USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+
+/** EIP-712 typed data: an EIP-2612 permit letting `recipient` spend 25 USDC of the signer's, as a dApp asks for one. */
 const ethereum = async (crypto: WalletCrypto, fingerprint: number, {recipient, signer}: Accounts<'ethereum'>) => {
   const airgap = ethereumAirgap(crypto.chains.ethereum)
   const request = {
     account: {address: signer.address, fingerprint, path: signer.path},
     origin: 'Loopback',
     requestId: createRequestId(crypto.random),
-    transaction: {
-      gas: 21_000n,
-      maxFeePerGas: 30_000_000_000n,
-      maxPriorityFeePerGas: 1_000_000_000n,
-      nonce: 0,
-      to: recipient.address,
-      value: 10_000_000_000_000_000n,
+    typedData: {
+      domain: {chainId: crypto.chains.ethereum.network.chainId, name: 'USDC', verifyingContract: USDC, version: '2'},
+      message: {
+        deadline: 2_000_000_000n,
+        nonce: 0n,
+        owner: signer.address,
+        spender: recipient.address,
+        value: 25_000_000n,
+      },
+      primaryType: 'Permit',
+      types: {
+        EIP712Domain: [
+          {name: 'name', type: 'string'},
+          {name: 'version', type: 'string'},
+          {name: 'chainId', type: 'uint256'},
+          {name: 'verifyingContract', type: 'address'},
+        ],
+        Permit: [
+          {name: 'owner', type: 'address'},
+          {name: 'spender', type: 'address'},
+          {name: 'value', type: 'uint256'},
+          {name: 'nonce', type: 'uint256'},
+          {name: 'deadline', type: 'uint256'},
+        ],
+      },
     },
   }
   const sent = transmit(airgap.encodeSignRequest(request), airgap.requestTypes, crypto.hash.sha256)
   const review = airgap.decodeSignRequest(sent.ur, {account: request.account})
 
-  if (review.kind !== 'transaction') {
-    throw new Error('The signer read a message, not the transaction sent.')
+  if (review.kind !== 'typed-data') {
+    throw new Error('The signer read something else than the typed data sent.')
   }
 
-  const signed = await signer.signTransaction(review.transaction)
   const answer = transmit(
-    airgap.encodeSignResponse({requestId: review.requestId, signature: signed.signature}),
+    airgap.encodeSignResponse(await airgap.signRequest(review, async () => signer)),
     airgap.responseTypes,
     crypto.hash.sha256
   )
   const result = airgap.decodeSignResponse(answer.ur, {request})
 
-  if (result.kind !== 'transaction') {
-    throw new Error('The answer is not a transaction.')
+  if (result.kind !== 'typed-data') {
+    throw new Error('The answer is not a typed data signature.')
   }
 
   return {
     answer,
     request: sent,
     review: [
-      {label: 'To', value: shortHex(review.transaction.to)},
-      {label: 'Value', value: '0.01 ETH'},
-      {label: 'Chain id', value: String(review.transaction.chainId)},
-      {label: 'Request id', value: review.requestId ?? 'None'},
+      {label: 'EIP-712', value: `${review.typedData.primaryType}, ${review.typedData.domain?.name ?? 'no name'}`},
+      {label: 'Spender', value: shortHex(String(review.typedData.message.spender))},
+      {label: 'Value', value: '25 USDC'},
+      {label: 'Chain id', value: String(review.typedData.domain?.chainId ?? 'None')},
     ],
     verified: [
       {label: 'Request id', value: 'Matches'},
       {label: 'Signer recovered', value: shortHex(signer.address)},
-      {label: 'Transaction hash', value: shortHex(result.transaction.hash)},
+      {label: 'Signature', value: shortHex(result.signature)},
     ],
   }
 }
 
+/** A Taproot (BIP-86) payment as a PSBT: BIP-371's fields out, a key path signature back. */
 const bitcoin = async (crypto: WalletCrypto, fingerprint: number, {recipient, signer}: Accounts<'bitcoin'>) => {
   const airgap = bitcoinAirgap(crypto.chains.bitcoin)
-  const watch = crypto.chains.bitcoin.watchAccount({fingerprint, path: signer.path, publicKey: signer.publicKey})
+  const watch = crypto.chains.bitcoin.watchAccount({
+    addressType: signer.addressType,
+    fingerprint,
+    path: signer.path,
+    publicKey: signer.publicKey,
+  })
   // Coins no network has: the loopback never broadcasts, and a signature commits only to what the PSBT says.
   const utxos = [
     {txid: hex.encode(crypto.random(32)), value: 90_000n, vout: 0},
@@ -131,34 +158,37 @@ const bitcoin = async (crypto: WalletCrypto, fingerprint: number, {recipient, si
   const psbt = watch.createPsbt(watch.createTransaction({amount: 100_000n, feeRate: 4, to: recipient.address, utxos}))
   const sent = transmit(airgap.encodeSignRequest({psbt}), airgap.requestTypes, crypto.hash.sha256)
   const review = airgap.decodeSignRequest(sent.ur, {account: signer})
-  const signed = await signer.signPsbt(review.psbt)
-  const answer = transmit(airgap.encodeSignResponse({psbt: signed.psbt}), airgap.responseTypes, crypto.hash.sha256)
+  const signed = await airgap.signRequest(review, async () => signer)
+  const answer = transmit(airgap.encodeSignResponse(signed), airgap.responseTypes, crypto.hash.sha256)
   const {transaction} = airgap.decodeSignResponse(answer.ur, {request: psbt})
 
   return {
     answer,
     request: sent,
     review: [
+      {label: 'Account', value: signer.addressType === 'p2tr' ? 'Taproot, BIP-86' : 'Native SegWit, BIP-84'},
       {label: 'Sending', value: `${review.sending} sats`},
       {label: 'Fee', value: `${review.fee ?? 0n} sats`},
-      {label: 'Coins', value: `${review.inputs.length}, all this account's`},
       {label: 'Warnings', value: review.warnings.join(', ') || 'None'},
     ],
     verified: [
       {label: 'Same transaction', value: shortHex(review.txid)},
-      {label: 'Signatures', value: `${review.inputs.length} verified by the engine`},
+      {label: 'Signatures', value: `${review.inputs.length} key path, verified by the engine`},
       {label: 'Ready to broadcast', value: `${transaction.vsize} vB`},
     ],
   }
 }
 
+/** A v0 transaction whose recipient comes from an address lookup table: what the signer cannot resolve, it says. */
 const solana = async (crypto: WalletCrypto, fingerprint: number, {recipient, signer}: Accounts<'solana'>) => {
   const airgap = solanaAirgap(crypto.chains.solana)
+  const table = base58.encode(crypto.random(32))
   const request = {
     account: {address: signer.address, fingerprint, path: signer.path},
     origin: 'Loopback',
     requestId: createRequestId(crypto.random),
     transaction: {
+      addressLookupTables: {[table]: [recipient.address]},
       instructions: [
         crypto.chains.solana.instructions.transfer({
           from: signer.address,
@@ -167,6 +197,7 @@ const solana = async (crypto: WalletCrypto, fingerprint: number, {recipient, sig
         }),
       ],
       recentBlockhash: base58.encode(crypto.random(32)),
+      version: 0 as const,
     },
   }
   const sent = transmit(airgap.encodeSignRequest(request), airgap.requestTypes, crypto.hash.sha256)
@@ -176,9 +207,8 @@ const solana = async (crypto: WalletCrypto, fingerprint: number, {recipient, sig
     throw new Error('The signer read a message, not the transaction sent.')
   }
 
-  const signature = await signer.signTransactionMessage(review.message)
   const answer = transmit(
-    airgap.encodeSignResponse({requestId: review.requestId, signature}),
+    airgap.encodeSignResponse(await airgap.signRequest(review, signer)),
     airgap.responseTypes,
     crypto.hash.sha256
   )
@@ -188,12 +218,14 @@ const solana = async (crypto: WalletCrypto, fingerprint: number, {recipient, sig
     throw new Error('The answer is not a transaction.')
   }
 
+  const lookedUp = review.decoded.accounts.filter(account => account.lookup !== undefined).length
+
   return {
     answer,
     request: sent,
     review: [
-      {label: 'Instruction', value: review.decoded.instructions[0]?.summary.type ?? 'None'},
-      {label: 'Sending', value: '0.1 SOL'},
+      {label: 'Version', value: `v${review.decoded.version}`},
+      {label: 'From lookup tables', value: `${lookedUp} account, not resolved offline`},
       {label: 'Fee payer', value: shortHex(review.decoded.feePayer)},
       {label: 'Warnings', value: review.warnings.join(', ') || 'None'},
     ],
@@ -206,9 +238,10 @@ const solana = async (crypto: WalletCrypto, fingerprint: number, {recipient, sig
 }
 
 /**
- * Both sides of air-gapped signing in one process, with a demo key: the watch-only side builds a request,
- * it travels as QR parts to the signer, which reads, checks and signs it, and the answer travels back to be checked.
- * Nothing is broadcast, and nothing is mocked but the camera.
+ * Both sides of air-gapped signing in one process, with a demo key: the watch-only side builds a request (an EIP-712
+ * permit, a Taproot PSBT, a v0 Solana transaction with a lookup table), it travels as QR parts to the signer, which
+ * reads, checks and signs it, and the answer travels back to be checked. Nothing is broadcast, and nothing is mocked
+ * but the camera. `account` gives each chain's accounts by number: Bitcoin's are Taproot ones.
  */
 export const runLoopback = async (
   crypto: WalletCrypto,

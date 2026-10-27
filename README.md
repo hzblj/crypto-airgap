@@ -19,9 +19,9 @@ question. Headless: no UI, no camera, no QR rendering. The keys, the signing and
 | Package | What it is |
 | --- | --- |
 | [`@hzblj/crypto-airgap`](./packages/crypto-airgap/README.md) | The protocol: Bytewords, deterministic CBOR, fountain-coded multipart, a typed registry, the public key types (`crypto-hdkey`, `crypto-multi-accounts`, …). No dependencies; installs alone. |
-| [`@hzblj/crypto-airgap-bitcoin`](./packages/crypto-airgap-bitcoin/README.md) | PSBTs as `crypto-psbt` both ways, accounts as `crypto-account` (Sparrow's pairing), signing for any address of an account. |
-| [`@hzblj/crypto-airgap-ethereum`](./packages/crypto-airgap-ethereum/README.md) | ERC-4527's `eth-sign-request` and `eth-signature`, accounts as `crypto-hdkey` (MetaMask's QR hardware wallets). |
-| [`@hzblj/crypto-airgap-solana`](./packages/crypto-airgap-solana/README.md) | `sol-sign-request` and `sol-signature`, for transactions and messages. |
+| [`@hzblj/crypto-airgap-bitcoin`](./packages/crypto-airgap-bitcoin/README.md) | PSBTs as `crypto-psbt` both ways, P2WPKH and Taproot, accounts as `crypto-account` and `crypto-output` (`wpkh`, `tr`: Sparrow's pairing), signing for any address of an account. |
+| [`@hzblj/crypto-airgap-ethereum`](./packages/crypto-airgap-ethereum/README.md) | ERC-4527's `eth-sign-request` and `eth-signature` for every data type: transactions of types 0 to 2 and 4, EIP-712 typed data, messages; accounts as `crypto-hdkey` (MetaMask's QR hardware wallets). |
+| [`@hzblj/crypto-airgap-solana`](./packages/crypto-airgap-solana/README.md) | `sol-sign-request` and `sol-signature`, for legacy and v0 transactions (with other signers too), messages and off-chain messages. |
 
 ```sh
 npx expo install @hzblj/crypto-airgap @hzblj/crypto-airgap-ethereum @hzblj/crypto-ethereum @hzblj/nitro-crypto react-native-nitro-modules
@@ -62,7 +62,7 @@ if (await userConfirms(request)) {
   Keystone or OneKey shows), see the balances, build a payment, show it as a request, scan the signature, check it
   and broadcast it.
 - **Loopback**: both sides on one phone with a demo key, through the same encoders and decoders and a pretend camera
-  that misses every third code.
+  that misses every third code: an EIP-712 permit, a Taproot PSBT and a v0 Solana transaction with a lookup table.
 
 ## This repository
 

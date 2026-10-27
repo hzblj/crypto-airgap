@@ -11,6 +11,7 @@ import {
   fingerprintOf,
   type PairingFormat,
   pairingRequest,
+  taprootAccountPathOf,
   walletCrypto,
 } from '../../core'
 import {useUnlockedWallet} from '../../hooks'
@@ -21,7 +22,7 @@ const FORMATS: readonly {
   readonly format: PairingFormat
   readonly label: string
   readonly lead: string
-  readonly shares: readonly {readonly chain: ChainId; readonly account: boolean}[]
+  readonly shares: readonly {readonly chain: ChainId; readonly account: boolean; readonly taproot?: boolean}[]
 }[] = [
   {
     format: 'watch-only',
@@ -36,8 +37,11 @@ const FORMATS: readonly {
   {
     format: 'sparrow',
     label: 'Sparrow',
-    lead: 'In Sparrow (testnet), make a new wallet, add an Airgapped Hardware Wallet keystore and scan this with its Scan button. Sparrow builds transactions from any address of the account, and this phone signs them.',
-    shares: [{account: true, chain: 'bitcoin'}],
+    lead: 'In Sparrow (testnet), make a new wallet, add an Airgapped Hardware Wallet keystore, scan this with its Scan button and pick native SegWit or Taproot. Sparrow builds transactions from any address of the account, and this phone signs them.',
+    shares: [
+      {account: true, chain: 'bitcoin'},
+      {account: true, chain: 'bitcoin', taproot: true},
+    ],
   },
   {
     format: 'metamask',
@@ -91,13 +95,14 @@ export const PairScreen = () => {
       <Section caption="Public keys only: nothing in this code can spend." title="Shared">
         <Island>
           <Rows>
-            {selected.shares.map(({account, chain}, position) => {
+            {selected.shares.map(({account, chain, taproot}, position) => {
               const {address, path} = wallet.accounts[chain]
+              const shown = taproot ? taprootAccountPathOf(path) : account ? accountPathOf(path) : path
               return (
-                <Fragment key={chain}>
+                <Fragment key={`${chain}${taproot ? ' taproot' : ''}`}>
                   {position > 0 ? <RowDivider /> : null}
                   <LabeledContent
-                    label={`${NETWORKS[chain].name} ${account ? accountPathOf(path) : path}`}
+                    label={`${NETWORKS[chain].name} ${shown}`}
                     value={account ? 'Every address' : shortAddress(address)}
                   />
                 </Fragment>

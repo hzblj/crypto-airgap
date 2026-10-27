@@ -235,7 +235,8 @@ const remember = <T>(id: string, derive: () => Promise<T>): Promise<T> => {
  * wallet locks.
  */
 export const accountsAt: AccountsAt = {
-  bitcoin: path => remember(`bitcoin ${path}`, () => openKeys().deriveAccount({chain: 'bitcoin', path})),
+  bitcoin: (path, addressType) =>
+    remember(`bitcoin ${addressType} ${path}`, () => openKeys().deriveAccount({addressType, chain: 'bitcoin', path})),
   ethereum: path => remember(`ethereum ${path}`, () => openKeys().deriveAccount({chain: 'ethereum', path})),
 }
 

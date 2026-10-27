@@ -43,6 +43,11 @@ published map without it, and the pack check refuses a tarball that names it.
 **Native views need a native parent.** Kara's native atoms (`LabeledContent`, `Button`, `TextField`) live in an
 `Island`, and inside a native stack only native children or Fragments.
 
+**What a registry does not have, a package does not invent.** A request type, a data type or a field travels only
+when an independent wallet's registry has it (Keystone's, ERC-4527, BCR's): Solana off-chain messages go as messages,
+Bitcoin message signing waits for a common type, lookup tables stay off the signer. Each package's README says what
+was left out and why.
+
 **Chain packages depend on their chain's adapter, not peer on it,** so that a minor release of the adapter does not
 force a major one here (changesets' rule for peers). `@hzblj/nitro-crypto` stays a peer: one native module per app.
 

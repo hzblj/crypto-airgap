@@ -31,7 +31,9 @@ Watch-only tab (`crypto-multi-accounts`), Sparrow (`crypto-account`) or MetaMask
 request for any address of those accounts, shows what it does from the bytes to be signed, signs after Face ID with the
 key derived at that path (`session.ts`, `accountsAt`) and shows the answer. Another phone's Watch-only tab scans the
 pairing (or a Keystone's or OneKey's accounts), shows the balances, builds a payment, shows it, scans the answer and
-broadcasts it once it is checked. The Loopback tab runs both sides on one phone.
+broadcasts it once it is checked. The Loopback tab runs both sides on one phone, on what the other tabs do not send: an
+EIP-712 permit, a Taproot (BIP-86) PSBT, a v0 Solana transaction with a lookup table. The signer signs for its BIP-84
+and BIP-86 Bitcoin accounts both (`taprootAccountPathOf`); Sparrow's pairing code carries both as `wpkh` and `tr`.
 
 **Testnets only.** Sepolia (chain id 11155111), Bitcoin testnet4 and Solana devnet, through public endpoints without
 keys.
