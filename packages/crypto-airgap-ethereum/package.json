@@ -55,13 +55,13 @@
   },
   "dependencies": {
     "@hzblj/crypto-airgap": "workspace:^",
-    "@hzblj/crypto-ethereum": "^0.2.0"
+    "@hzblj/crypto-ethereum": "^0.3.0"
   },
   "peerDependencies": {
-    "@hzblj/nitro-crypto": "^0.1.2"
+    "@hzblj/nitro-crypto": "^0.1.5"
   },
   "devDependencies": {
-    "@hzblj/nitro-crypto": "^0.1.2",
+    "@hzblj/nitro-crypto": "^0.1.5",
     "@keystonehq/bc-ur-registry-eth": "0.22.1",
     "@types/node": "^22.19.0",
     "tsx": "^4.23.15",

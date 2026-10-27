@@ -52,7 +52,7 @@
     "test": "node --conditions=source --import tsx --test 'test/**/*.test.ts'"
   },
   "devDependencies": {
-    "@hzblj/nitro-crypto": "^0.1.2",
+    "@hzblj/nitro-crypto": "^0.1.5",
     "@keystonehq/bc-ur-registry": "0.8.1",
     "@ngraveio/bc-ur": "1.1.13",
     "@scure/bip32": "2.4.0",

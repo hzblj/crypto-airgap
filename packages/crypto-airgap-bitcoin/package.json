@@ -54,13 +54,13 @@
   },
   "dependencies": {
     "@hzblj/crypto-airgap": "workspace:^",
-    "@hzblj/crypto-bitcoin": "^0.2.0"
+    "@hzblj/crypto-bitcoin": "^0.3.0"
   },
   "peerDependencies": {
-    "@hzblj/nitro-crypto": "^0.1.2"
+    "@hzblj/nitro-crypto": "^0.1.5"
   },
   "devDependencies": {
-    "@hzblj/nitro-crypto": "^0.1.2",
+    "@hzblj/nitro-crypto": "^0.1.5",
     "@keystonehq/bc-ur-registry": "0.8.1",
     "@scure/base": "2.4.0",
     "@scure/bip32": "2.4.0",
